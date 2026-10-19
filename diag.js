@@ -2,13 +2,14 @@
 (function () {
   'use strict';
   var items = {};
-  var order = ['https', 'browser', 'tts', 'voices', 'jaVoice', 'stt', 'mic', 'standalone'];
+  var order = ['https', 'browser', 'tts', 'voices', 'jaVoice', 'ttsRun', 'stt', 'mic', 'standalone'];
   var labels = {
     https: 'HTTPS（安全な接続）',
     browser: 'ブラウザ',
     tts: '音声読み上げ（speechSynthesis）',
     voices: '使える声の数',
     jaVoice: '日本語の声',
+    ttsRun: '読み上げの実行（試した結果）',
     stt: '音声認識（SpeechRecognition）',
     mic: 'マイクの許可',
     standalone: 'ホーム画面から起動'

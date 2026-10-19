@@ -37,7 +37,7 @@
   function showErr(msg) { errEl.textContent = msg || ''; }
 
   // ---------- 声の一覧 ----------
-  var PREFER = [/kyoko/i, /o-?ren/i, /google 日本語/i, /nanami/i, /haruka/i, /ayumi/i, /sayaka/i];
+  var PREFER = [/kyoko/i, /o-?ren/i, /otoya/i, /hattori/i, /google 日本語/i, /nanami/i, /haruka/i, /ayumi/i, /sayaka/i];
   function loadVoices() {
     if (!hasTTS) return;
     var list = speechSynthesis.getVoices() || [];
@@ -75,32 +75,53 @@
 
   // ---------- 読み上げ ----------
   // iPhone は最初の1回を「タップの中」で鳴らさないと、以後も声が出ない
+  var IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   function unlock() {
-    if (unlocked || !hasTTS) return;
+    // iPhone だけ必要。Mac の Chrome では空の読み上げが次の声を飲み込むことがあるので行わない
+    if (unlocked || !hasTTS || !IS_IOS) return;
     unlocked = true;
     try { var u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
   }
 
+  var KEEP = []; // Chrome は読み上げ中のオブジェクトが片付けられると無音で止まるので、手元に持っておく
   function speak(text, done) {
     if (!hasTTS) { setState('idle'); if (done) done(); return; }
-    try { speechSynthesis.cancel(); } catch (e) {}
+    var busy = false;
+    try { busy = speechSynthesis.speaking || speechSynthesis.pending; } catch (e) {}
+    // Chrome は cancel() の直後に speak() すると、その声が黙って捨てられることがある。少し間を空ける
+    if (busy) { try { speechSynthesis.cancel(); } catch (e) {} setTimeout(function () { doSpeak(text, done); }, 150); }
+    else doSpeak(text, done);
+  }
+  function doSpeak(text, done) {
     var u = new SpeechSynthesisUtterance(text);
+    KEEP.push(u); if (KEEP.length > 5) KEEP.shift();
     var v = VOICES.filter(function (x) { return x.name === conf.voice; })[0];
     if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'ja-JP'; }
     u.pitch = conf.pitch; u.rate = conf.rate; u.volume = 1;
-    var finished = false;
+    var finished = false, started = false;
     function end() { if (finished) return; finished = true; clearTimeout(speakTimer); setState('idle'); if (done) done(); }
-    u.onstart = function () { setState('speaking'); };
+    u.onstart = function () {
+      started = true; setState('speaking');
+      TK_DIAG.set('ttsRun', true, '声を出す合図が来ました（' + (v ? v.name : '既定の声') + '）。聞こえない場合はパソコンの音量・出力先・タブのミュートを確認してください');
+    };
     u.onend = end;
     u.onerror = function (e) {
       var code = e && e.error;
       if (code === 'interrupted' || code === 'canceled') { end(); return; }
       showErr('声を出せませんでした（' + (code || '不明') + '）。' + ttsHint(code));
+      TK_DIAG.set('ttsRun', false, 'エラー：' + (code || '不明') + '（' + (v ? v.name : '既定の声') + '）');
       setState('error'); finished = true; clearTimeout(speakTimer);
     };
     setState('speaking');
+    try { speechSynthesis.resume(); } catch (e) {}
     try { speechSynthesis.speak(u); }
     catch (e) { showErr('声を出せませんでした（' + e.message + '）。'); setState('error'); finished = true; return; }
+    // 始まりの合図が来ないときは、その声が使えない可能性が高い
+    setTimeout(function () {
+      if (started || finished) return;
+      showErr('声が始まりませんでした（' + (v ? v.name : '既定の声') + '）。「声」を「Google 日本語」や「Kyoko」など別の声に変えて、もう一度試してください。');
+      TK_DIAG.set('ttsRun', false, '合図が来ませんでした（' + (v ? v.name : '既定の声') + '）');
+    }, 3000);
     // 終わりの知らせが来ないブラウザがあるので、時間で見切る
     clearTimeout(speakTimer);
     speakTimer = setTimeout(end, 4000 + text.length * 250);
