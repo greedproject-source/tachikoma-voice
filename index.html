@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#14181f">
 <title>タチコマ 音声テスト v0.2</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=022">
 </head>
 <body>
 <main class="wrap">
@@ -57,6 +57,8 @@
       <input id="rate" type="range" min="0.6" max="1.6" step="0.05" value="1.15">
     </label>
     <button id="testSpeak" type="button" class="btn2">🔊 試しに喋らせる</button>
+    <button id="tryAll" type="button" class="btn2">🔎 日本語の声を全部試す</button>
+    <ul id="tryAllOut" class="diag"></ul>
     <p class="small">iPhoneは、最初に一度ボタンを押さないと声が出ません。音が出ないときは消音スイッチと音量も確認してください。</p>
   </details>
 
@@ -66,9 +68,9 @@
     <button id="copyDiag" type="button" class="btn2">結果をコピー</button>
   </details>
 
-  <footer class="foot">v0.2.1 ・ Life Game とは独立した試作 ・ 外部に送るデータなし</footer>
+  <footer class="foot">v0.2.2 ・ Life Game とは独立した試作 ・ 外部に送るデータなし</footer>
 </main>
-<script src="diag.js"></script>
-<script src="app.js"></script>
+<script src="diag.js?v=022"></script>
+<script src="app.js?v=022"></script>
 </body>
 </html>

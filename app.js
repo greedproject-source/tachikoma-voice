@@ -99,7 +99,15 @@
     if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'ja-JP'; }
     u.pitch = conf.pitch; u.rate = conf.rate; u.volume = 1;
     var finished = false, started = false;
-    function end() { if (finished) return; finished = true; clearTimeout(speakTimer); setState('idle'); if (done) done(); }
+    function end() {
+      if (finished) return; finished = true; clearTimeout(speakTimer); setState('idle');
+      if (!started) {
+        // 始まりの合図なしに終わった＝その声では鳴っていない
+        TK_DIAG.set('ttsRun', false, '始まらずに終わりました（' + (v ? v.name : '既定の声') + '）。下の「日本語の声を全部試す」で使える声を探してください');
+        showErr('声が出ませんでした（' + (v ? v.name : '既定の声') + '）。「日本語の声を全部試す」を押すと、使える声を探せます。');
+      }
+      if (done) done();
+    }
     u.onstart = function () {
       started = true; setState('speaking');
       TK_DIAG.set('ttsRun', true, '声を出す合図が来ました（' + (v ? v.name : '既定の声') + '）。聞こえない場合はパソコンの音量・出力先・タブのミュートを確認してください');
@@ -133,6 +141,40 @@
     return '音量と消音スイッチも確認してください。';
   }
 
+  // 日本語の声を1つずつ鳴らして、始まったか・終わったか・エラーかを記録する
+  $('tryAll').onclick = function () {
+    unlock(); showErr('');
+    var ja = VOICES.filter(function (v) { return /^ja/i.test(v.lang); });
+    if (!ja.length) { showErr('日本語の声が見つかりません。'); return; }
+    var out = $('tryAllOut'), rows = [], i = 0, btn = $('tryAll');
+    btn.disabled = true;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    function draw() { out.innerHTML = rows.join(''); }
+    function next() {
+      if (i >= ja.length) {
+        btn.disabled = false; btn.textContent = '🔁 もう一度全部試す';
+        var ok = rows.filter(function (r) { return r.indexOf('✅') >= 0; }).length;
+        TK_DIAG.set('ttsRun', ok > 0, '全部試した結果：' + ok + ' / ' + ja.length + ' 個の声で合図あり');
+        return;
+      }
+      var v = ja[i++], u = new SpeechSynthesisUtterance(i + '番、' + v.name.replace(/\s*\(.*$/, '') + 'です');
+      KEEP.push(u); if (KEEP.length > 5) KEEP.shift();
+      u.voice = v; u.lang = v.lang; u.pitch = conf.pitch; u.rate = conf.rate; u.volume = 1;
+      var st = false, fin = false, t0 = Date.now();
+      function done(mark, note) {
+        if (fin) return; fin = true;
+        rows.push('<li><span>' + mark + '</span><span>' + i + '. ' + escHtml(v.name) + (v.localService === false ? '（ネット）' : '') + '<br><span class="k">' + note + '</span></span></li>');
+        draw(); setTimeout(next, 300);
+      }
+      u.onstart = function () { st = true; };
+      u.onend = function () { done(st ? '✅' : '❌', st ? '合図あり（' + ((Date.now() - t0) / 1000).toFixed(1) + '秒）' : '始まらずに終了'); };
+      u.onerror = function (e) { done('❌', 'エラー：' + (e && e.error)); };
+      setTimeout(function () { if (!st) done('⚠️', '5秒待っても始まらない'); else done('✅', '合図あり（終わりの合図なし）'); }, 8000);
+      try { speechSynthesis.speak(u); } catch (e) { done('❌', e.message); }
+    }
+    rows = []; draw(); next();
+  };
+
   $('testSpeak').onclick = function () {
     unlock(); showErr('');
     speak('こんにちは、タチコマです！ 声、聞こえていますか？');
@@ -160,13 +202,20 @@
     rec.continuous = false;
     rec.maxAlternatives = 1;
     var finalText = '', gotError = false;
-    rec.onstart = function () { listening = true; setState('listening'); };
+    var myRec = rec, heard = false;
+    rec.onstart = function () {
+      listening = true; setState('listening');
+      // 固まり防止：8秒なにも聞こえない／合計20秒で打ち切る
+      setTimeout(function () { if (rec === myRec && !heard) { try { myRec.abort(); } catch (e) {} resetListen('声が聞こえないので止めました。もう一度🎤を押してください。'); } }, 8000);
+      setTimeout(function () { if (rec === myRec) { try { myRec.stop(); } catch (e) {} setTimeout(function () { if (rec === myRec) { try { myRec.abort(); } catch (e) {} resetListen('聞き取りが終わらないので止めました。'); } }, 1500); } }, 20000);
+    };
     rec.onresult = function (ev) {
       var interim = '';
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
         var t = ev.results[i][0].transcript;
         if (ev.results[i].isFinal) finalText += t; else interim += t;
       }
+      heard = true;
       interimEl.textContent = (finalText + interim) || '';
       TK_DIAG.showMic('granted');
     };
@@ -177,6 +226,7 @@
       if (code !== 'aborted') { showErr(SR_ERR[code] || ('音声認識でエラーが出ました（' + code + '）。')); setState('error'); }
     };
     rec.onend = function () {
+      if (rec !== myRec) return; // すでに強制的に戻したあと
       listening = false; rec = null;
       var text = finalText.trim() || interimEl.textContent.trim();
       interimEl.textContent = '';
@@ -186,9 +236,24 @@
     try { rec.start(); } catch (e) { showErr('マイクを開始できませんでした（' + e.message + '）。'); setState('error'); }
   }
 
+  function resetListen(msg) {
+    var t = interimEl.textContent.trim();
+    listening = false; rec = null; interimEl.textContent = '';
+    if (t) { handle(t); return; }
+    setState('idle'); if (msg) showErr(msg);
+  }
+
   micBtn.onclick = function () {
     unlock();
-    if (listening && rec) { try { rec.stop(); } catch (e) {} return; }
+    // 話している途中なら止める
+    try { if (speechSynthesis.speaking) { speechSynthesis.cancel(); setState('idle'); } } catch (e) {}
+    if (listening && rec) {
+      var r = rec;
+      try { r.stop(); } catch (e) {}
+      // iPhone は止めても終わりの合図が来ないことがある。1.5秒で強制的に戻す
+      setTimeout(function () { if (rec === r) { try { r.abort(); } catch (e) {} resetListen('止めました。'); } }, 1500);
+      return;
+    }
     startListen();
   };
 
